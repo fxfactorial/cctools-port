@@ -106,6 +106,7 @@ void target_info(char *argv[], char **triple, char **compiler)
     char *x = strrchr(p, '-');
     if (!x) abort();
     *compiler = &x[1];
+    printf("Compiler is: %s\n", *compiler);
     *x = '\0';
     *triple = p;
 }
@@ -169,8 +170,7 @@ int main(int argc, char *argv[])
     args[i++] = "-isysroot";
     args[i++] = sdk;
 
-    if (cpu)
-    {
+    if (cpu) {
         args[i++] = "-arch";
         args[i++] = cpu;
     }
@@ -183,7 +183,15 @@ int main(int argc, char *argv[])
 
     args[i] = NULL;
 
+    printf("GAR: Path: %s \n"
+	   "Compiler: %s\n", execpath, compiler);
+
     setenv("COMPILER_PATH", execpath, 1);
+
+    int k;
+    for (k = 0; k < i; k++)
+      printf("Compiler option: %s\n", args[k]);
+    printf("End of Compiler args\n");
     execvp(compiler, args);
 
     fprintf(stderr, "cannot invoke compiler!\n");

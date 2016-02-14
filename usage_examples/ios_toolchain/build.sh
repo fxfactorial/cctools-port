@@ -164,8 +164,8 @@ function verify_arch {
 }
 
 function verify_sdk_version {
-    local sdk=$(basename "$1" | grep -P -o "[0-9].[0-9]+")
-    case "$sdk" in
+    sdk_version=$(basename "$1" | grep -P -o "[0-9].[0-9]+")
+    case "$sdk_version" in
 	# Make sure the SDK is correct.
 	[5-9].[0-9]);;
 	*)
@@ -190,6 +190,7 @@ function do_build {
     target_dir="$PWD/target"
     sdk_dir="$target_dir/SDK"
     platform="$(uname -s)"
+    sdk_version=
 
     mkdir -p "$target_dir"
     mkdir -p "$target_dir/bin"
@@ -211,68 +212,61 @@ function do_build {
 	exit 1
     fi
 
+    # This seems incorrect
     local sys_root=$(readlink -f "$(dirname $sys_lib)/../..")
+
+    local sdk_unboxed=$(basename $sys_root)
+
+    mv "$sys_root"/* "$sdk_dir"
+
+    popd &>/dev/null
+
+    clr_cyan "\nbuilding wrapper"
+
+    printf "int main(){return 0;}" | cc -xc -O2 -o "$target_dir"/bin/dsymutil -
+
+    cc -O2 -Wall -Wextra -pedantic wrapper.c \
+    -DTARGET_CPU=$(printf '"%s"' "$2") \
+    -DOS_VER_MIN=$(printf '"%s"' "$sdk_version") \
+    -o $target_dir/bin/$triple-clang
+
+    pushd "$target_dir"/bin &>/dev/null
+
+    cp "$triple"-clang "$triple"-clang++
+
+    popd &>/dev/null
+
+    clr_cyan "\nbuilding ldid\n"
+
+    mkdir -p tmp
+    pushd tmp &>/dev/null
+    git clone https://github.com/onlinemediagroup/ldid
+    pushd ldid &>/dev/null
+    make INSTALLPREFIX="$target_dir" -j4 install
+    popd &>/dev/null
+    popd &>/dev/null
+
+    clr_cyan "\nbuilding cctools / ld64\n"
+
+    pushd ../../cctools &>/dev/null
+    git clean -fdx . &>/dev/null || true
+    ./autogen.sh --target="$triple" --prefix="$target_dir"
+    # export CC=$(readlink -f `which clang`)
+    ./configure #--target="$triple" --prefix="$target_dir"
+    make -j4
+    make install &>/dev/null
+    popd &>/dev/null
+
+    # clr_cyan "\nChecking toolchain\n"
+
+    # export PATH=$target_dir/bin:$PATH
+
+	# echo "int main(){return 0;}" \
+	    # | $triple-clang -xc -O2 -o test - 1>/dev/null || exit 1
+    # echo "*** all done ***"
+    # echo "do not forget to add $TARGETDIR/bin to your PATH variable"
+
     exit 0
 }
 
 do_build "$@"
-
-set +e
-mv $SYSROOT/* $SDKDIR 2>/dev/null
-set -e
-
-
-echo ""
-echo "*** building wrapper ***"
-echo ""
-
-echo "int main(){return 0;}" | cc -xc -O2 -o $TARGETDIR/bin/dsymutil -
-
-verbose_cmd cc -O2 -Wall -Wextra -pedantic wrapper.c \
-    -DTARGET_CPU=\"\\\"$2\\\"\" \
-    -DOS_VER_MIN=\"\\\"$SDK_VERSION\\\"\" \
-    -o $TARGETDIR/bin/$TRIPLE-clang
-
-pushd $TARGETDIR/bin &>/dev/null
-verbose_cmd ln -sf $TRIPLE-clang $TRIPLE-clang++
-popd &>/dev/null
-
-echo ""
-echo "*** building ldid ***"
-echo ""
-
-rm -rf tmp
-mkdir -p tmp
-pushd tmp &>/dev/null
-git clone https://github.com/tpoechtrager/ldid.git
-pushd ldid &>/dev/null
-make INSTALLPREFIX=$TARGETDIR -j4 install
-popd &>/dev/null
-popd &>/dev/null
-
-echo ""
-echo "*** building cctools / ld64 ***"
-echo ""
-
-pushd ../../cctools &>/dev/null
-git clean -fdx . &>/dev/null || true
-./autogen.sh
-./configure --target=$TRIPLE --prefix=$TARGETDIR
-make -j4 && make install
-popd &>/dev/null
-
-echo ""
-echo "*** checking toolchain ***"
-echo ""
-
-export PATH=$TARGETDIR/bin:$PATH
-
-echo "int main(){return 0;}" | $TRIPLE-clang -xc -O2 -o test - 1>/dev/null || exit 1
-rm test
-echo "OK"
-
-echo ""
-echo "*** all done ***"
-echo ""
-echo "do not forget to add $TARGETDIR/bin to your PATH variable"
-echo ""
